@@ -1,0 +1,472 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0a0e">
+<title>REDLINE — Your Space</title>
+<style>
+:root {
+  --bg:#09090d; --panel:#121218; --red:#e11d48;
+  --light:#fb7185; --text:#f4f4f5; --muted:#92929e;
+  --border:#292932;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:system-ui,-apple-system,sans-serif;
+}
+button,input {
+  font:inherit; border-radius:10px; padding:12px;
+}
+button {
+  cursor:pointer; border:0; background:var(--red);
+  color:white; font-weight:700;
+}
+button.secondary {
+  background:#24242d; border:1px solid var(--border);
+}
+input {
+  width:100%; background:#0c0c11; color:white;
+  border:1px solid var(--border); outline:none;
+}
+input:focus { border-color:var(--red); }
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:17px; border-bottom:1px solid var(--border);
+}
+.logo { font-size:24px; font-weight:900; letter-spacing:2px; }
+.logo span { color:var(--red); }
+small,.muted { color:var(--muted); }
+#auth {
+  max-width:400px; margin:65px auto; padding:20px;
+}
+#auth h1 { font-size:38px; margin-bottom:5px; }
+#auth input { margin:7px 0; }
+#app { display:none; }
+.layout {
+  display:grid; grid-template-columns:300px 1fr;
+  height:calc(100dvh - 67px);
+}
+.sidebar {
+  border-right:1px solid var(--border); overflow-y:auto;
+  padding:15px;
+}
+.actions { display:flex; gap:8px; margin:12px 0; }
+.actions button { flex:1; font-size:12px; padding:11px 5px; }
+#people { margin-top:15px; }
+.person {
+  padding:13px 10px; border-radius:12px; cursor:pointer;
+  display:flex; gap:10px; align-items:center;
+  margin:4px 0;
+}
+.person:hover,.person.active { background:#25121a; }
+.avatar {
+  width:42px; height:42px; flex-shrink:0; border-radius:50%;
+  display:grid; place-items:center; background:#3a1422;
+  color:var(--light); font-weight:800;
+}
+.person-info { min-width:0; flex:1; }
+.person-info strong,.person-info small {
+  display:block; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.person-info small { margin-top:4px; }
+#chat {
+  display:flex; flex-direction:column; min-width:0;
+}
+#chatHeader { padding:17px; border-bottom:1px solid var(--border); }
+#messages {
+  flex:1; overflow-y:auto; padding:20px;
+  display:flex; flex-direction:column; gap:12px;
+}
+.bubble {
+  max-width:78%; width:fit-content; padding:11px 14px;
+  border-radius:15px; background:#202028;
+  overflow-wrap:anywhere;
+}
+.bubble.mine { background:#8e1535; align-self:flex-end; }
+.bubble small { display:block; margin-top:5px; font-size:10px; }
+#sendForm {
+  display:flex; gap:8px; padding:12px;
+  border-top:1px solid var(--border);
+}
+#sendForm input { flex:1; min-width:0; }
+#sendForm button { padding:10px 18px; }
+#empty { margin:auto; text-align:center; padding:25px; }
+#empty .symbol { font-size:55px; color:var(--red); }
+.hidden { display:none !important; }
+@media(max-width:650px) {
+  .layout { grid-template-columns:1fr; }
+  .sidebar { border-right:0; }
+  #chat { display:none; }
+  body.chat-open .sidebar { display:none; }
+  body.chat-open #chat { display:flex; height:calc(100dvh - 67px); }
+  #auth { margin:35px auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">RED<span>LINE</span></div>
+  <button id="logout" class="secondary hidden">Log out</button>
+</header>
+
+<section id="auth">
+  <h1>Enter your<br><span style="color:#e11d48">own space.</span></h1>
+  <p class="muted">Your squad. Your rules. No phone number.</p>
+  <input id="email" type="email" placeholder="Email address" autocomplete="email">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <div id="signupFields" class="hidden">
+    <input id="username" placeholder="Choose ID (e.g. ACE_27)"
+      maxlength="24" autocomplete="username">
+    <input id="displayName" placeholder="Your display name" maxlength="40">
+  </div>
+  <button id="login" style="width:100%;margin-top:10px">Log in</button>
+  <button id="signup" class="secondary" style="width:100%;margin-top:8px">
+    Create account
+  </button>
+  <p id="authStatus" class="muted"></p>
+</section>
+
+<section id="app">
+  <div class="layout">
+    <aside class="sidebar">
+      <strong>Your squad</strong>
+      <div class="actions">
+        <button id="addContact">+ Contact</button>
+        <button id="createGroup" class="secondary">+ Group</button>
+      </div>
+      <input id="search" placeholder="Search your chats...">
+      <div id="people"></div>
+      <p class="muted" style="font-size:11px">
+        Your saved nicknames are private to your account.
+      </p>
+    </aside>
+
+    <main id="chat">
+      <div id="empty">
+        <div class="symbol">✦</div>
+        <h2>Your people. Your space.</h2>
+        <p class="muted">Choose a contact or create a group.</p>
+      </div>
+      <div id="conversation" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
+        <div id="chatHeader">
+          <button id="back" class="secondary hidden">← Back</button>
+          <strong id="chatTitle">Chat</strong>
+          <button id="rename" class="secondary" style="float:right">Rename</button>
+        </div>
+        <div id="messages"></div>
+        <form id="sendForm">
+          <input id="messageInput" placeholder="Message your Bois..."
+            maxlength="4000" autocomplete="off" required>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </main>
+  </div>
+</section>
+
+<script type="module">
+import { initializeApp } from
+  "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, addDoc, collection, query,
+  where, orderBy, onSnapshot, serverTimestamp, getDocs, updateDoc
+} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+// Replace these values with your Firebase web app configuration.
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  appId: "YOUR_APP_ID"
+};
+
+const appFirebase = initializeApp(firebaseConfig);
+const auth = getAuth(appFirebase);
+const db = getFirestore(appFirebase);
+
+const $ = id => document.getElementById(id);
+let me = null, profile = null, active = null;
+let contacts = [], groups = [], stopMessages = null;
+let stopContacts = null, stopGroups = null, stopUsers = null;
+let knownUsers = [];
+let isSignup = false;
+
+function status(message) { $("authStatus").textContent = message; }
+function cleanId(s) {
+  return s.trim().replace(/^@/, "").toUpperCase();
+}
+function chatId(a,b) { return [a,b].sort().join("_"); }
+
+$("signup").onclick = () => {
+  isSignup = !isSignup;
+  $("signupFields").classList.toggle("hidden", !isSignup);
+  $("login").classList.toggle("hidden", isSignup);
+  $("signup").textContent = isSignup ? "Cancel sign up" : "Create account";
+  status("");
+};
+
+$("login").onclick = async () => {
+  try {
+    await signInWithEmailAndPassword(
+      auth, $("email").value.trim(), $("password").value
+    );
+  } catch(e) { status(e.message); }
+};
+
+$("signup").addEventListener("dblclick", async () => {
+  if (!isSignup) return;
+  status("Use the Create account button once to register.");
+});
+
+$("signup").onclick = async () => {
+  if (!isSignup) {
+    isSignup = true;
+    $("signupFields").classList.remove("hidden");
+    $("login").classList.add("hidden");
+    $("signup").textContent = "Register";
+    return;
+  }
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  const username = cleanId($("username").value);
+  const displayName = $("displayName").value.trim();
+  if (!/^[A-Z0-9_]{3,24}$/.test(username)) {
+    status("ID must be 3–24 letters, numbers or underscores."); return;
+  }
+  if (!displayName) { status("Enter a display name."); return; }
+  try {
+    const existing = await getDocs(query(
+      collection(db,"users"), where("username","==",username)
+    ));
+    if (!existing.empty) { status("That ID is already taken."); return; }
+    const result = await createUserWithEmailAndPassword(auth,email,password);
+    await setDoc(doc(db,"users",result.user.uid), {
+      username, displayName, createdAt:serverTimestamp()
+    });
+  } catch(e) { status(e.message); }
+};
+
+onAuthStateChanged(auth, async user => {
+  me = user;
+  if (!user) {
+    $("auth").style.display = "block";
+    $("app").style.display = "none";
+    $("logout").classList.add("hidden");
+    return;
+  }
+  try {
+    const snap = await getDoc(doc(db,"users",user.uid));
+    if (!snap.exists()) {
+      status("Profile not found. Sign out and register again.");
+      return;
+    }
+    profile = snap.data();
+    $("auth").style.display = "none";
+    $("app").style.display = "block";
+    $("logout").classList.remove("hidden");
+    startLists();
+  } catch(e) { alert("Could not load profile: " + e.message); }
+});
+
+$("logout").onclick = () => signOut(auth);
+
+function startLists() {
+  stopContacts?.(); stopGroups?.(); stopUsers?.();
+  stopContacts = onSnapshot(
+    collection(db,"users",me.uid,"contacts"), snap => {
+      contacts = snap.docs.map(d=>({id:d.id,...d.data()}));
+      drawPeople();
+    }, e=>console.error(e)
+  );
+  stopGroups = onSnapshot(query(
+    collection(db,"chats"), where("members","array-contains",me.uid)
+  ), snap => {
+    groups = snap.docs
+      .filter(d=>d.data().type==="group")
+      .map(d=>({id:d.id,...d.data()}));
+    drawPeople();
+  }, e=>console.error(e));
+  // User documents contain public display IDs, not email addresses.
+  stopUsers = onSnapshot(collection(db,"users"), snap => {
+    knownUsers = snap.docs.map(d=>({uid:d.id,...d.data()}));
+  }, e=>console.error(e));
+}
+
+function labelContact(c) {
+  return c.nickname || c.displayName || c.username || "Friend";
+}
+
+function drawPeople() {
+  const term = $("search").value.toLowerCase();
+  const list = $("people");
+  list.innerHTML = "";
+  const entries = [
+    ...contacts.map(c=>({kind:"contact",data:c,
+      title:labelContact(c), subtitle:"@"+c.username})),
+    ...groups.map(g=>({kind:"group",data:g,
+      title:g.name, subtitle:(g.members?.length||0)+" members"}))
+  ].filter(x=>(x.title+" "+x.subtitle).toLowerCase().includes(term));
+
+  if (!entries.length) {
+    list.innerHTML='<p class="muted">No chats yet. Add your Bois!</p>';
+  }
+  entries.forEach(entry=>{
+    const el = document.createElement("div");
+    el.className = "person"+(active?.id===entry.data.chatId ||
+      active?.id===entry.data.id ? " active":"");
+    const av = document.createElement("div");
+    av.className="avatar";
+    av.textContent=entry.title.slice(0,1).toUpperCase();
+    const info=document.createElement("div");
+    info.className="person-info";
+    const strong=document.createElement("strong");
+    strong.textContent=entry.title;
+    const small=document.createElement("small");
+    small.textContent=entry.subtitle;
+    info.append(strong,small); el.append(av,info);
+    el.onclick=()=>openChat(entry);
+    list.append(el);
+  });
+}
+$("search").oninput=drawPeople;
+
+$("addContact").onclick=async ()=>{
+  const id=cleanId(prompt("Enter your friend's REDLINE ID:")||"");
+  if(!id) return;
+  try {
+    const found=await getDocs(query(collection(db,"users"),
+      where("username","==",id)));
+    if(found.empty) { alert("ID not found."); return; }
+    const friend=found.docs[0];
+    if(friend.id===me.uid) { alert("You already have yourself!"); return; }
+    const p=friend.data();
+    const cid=chatId(me.uid,friend.id);
+    const chatRef=doc(db,"chats",cid);
+    const chatSnap=await getDoc(chatRef);
+    if(!chatSnap.exists()) {
+      await setDoc(chatRef,{
+        type:"direct", members:[me.uid,friend.id],
+        createdAt:serverTimestamp()
+      });
+    }
+    await setDoc(doc(db,"users",me.uid,"contacts",friend.id),{
+      friendUid:friend.id, username:p.username,
+      displayName:p.displayName, chatId:cid
+    },{merge:true});
+    await setDoc(doc(db,"users",friend.id,"contacts",me.uid),{
+      friendUid:me.uid, username:profile.username,
+      displayName:profile.displayName, chatId:cid
+    },{merge:true});
+    alert("Contact added!");
+  } catch(e) { alert(e.message); }
+};
+
+$("createGroup").onclick=async ()=>{
+  const name=prompt("Group name:");
+  if(!name?.trim()) return;
+  const raw=prompt("Enter members' REDLINE IDs separated by commas:");
+  if(raw===null) return;
+  try {
+    const members=new Set([me.uid]);
+    for(const id of raw.split(",").map(cleanId).filter(Boolean)) {
+      const found=await getDocs(query(collection(db,"users"),
+        where("username","==",id)));
+      if(!found.empty) members.add(found.docs[0].id);
+    }
+    const ref=await addDoc(collection(db,"chats"),{
+      type:"group", name:name.trim().slice(0,60),
+      members:[...members], createdBy:me.uid,
+      createdAt:serverTimestamp()
+    });
+    await openChat({kind:"group",data:{id:ref.id,
+      name:name.trim(),members:[...members]}});
+  } catch(e) { alert(e.message); }
+};
+
+async function openChat(entry) {
+  const d=entry.data;
+  const isGroup=entry.kind==="group";
+  const id=isGroup?d.id:d.chatId;
+  if(!id) { alert("Chat not initialized."); return; }
+  active={id,kind:entry.kind,data:d};
+  $("empty").classList.add("hidden");
+  $("conversation").classList.remove("hidden");
+  $("chatTitle").textContent=isGroup?d.name:labelContact(d);
+  $("rename").classList.toggle("hidden",isGroup);
+  $("messages").innerHTML="";
+  document.body.classList.add("chat-open");
+  $("back").classList.toggle("hidden",window.innerWidth>650);
+  stopMessages?.();
+  const msgQuery=query(collection(db,"chats",id,"messages"),
+    orderBy("createdAt","asc"));
+  stopMessages=onSnapshot(msgQuery,snap=>{
+    const box=$("messages");
+    box.innerHTML="";
+    snap.docs.forEach(m=>{
+      const x=m.data();
+      const bubble=document.createElement("div");
+      bubble.className="bubble"+(x.senderId===me.uid?" mine":"");
+      const author=document.createElement("div");
+      author.style.fontSize="11px";
+      author.style.color="#fda4af";
+      author.textContent=x.senderId===me.uid?"You":
+        (knownUsers.find(u=>u.uid===x.senderId)?.displayName||"Member");
+      const body=document.createElement("div");
+      body.textContent=x.text;
+      const time=document.createElement("small");
+      time.textContent=x.createdAt?.toDate
+        ? x.createdAt.toDate().toLocaleTimeString([],{
+          hour:"2-digit",minute:"2-digit"}):"Sending...";
+      bubble.append(author,body,time); box.append(bubble);
+    });
+    box.scrollTop=box.scrollHeight;
+  },e=>console.error(e));
+  drawPeople();
+}
+$("back").onclick=()=>{
+  document.body.classList.remove("chat-open");
+  active=null;
+  stopMessages?.(); stopMessages=null;
+};
+$("rename").onclick=async ()=>{
+  if(active?.kind!=="contact") return;
+  const name=prompt("Choose a private nickname:",labelContact(active.data));
+  if(name===null) return;
+  try {
+    const ref=doc(db,"users",me.uid,"contacts",active.data.friendUid);
+    await updateDoc(ref,{nickname:name.trim().slice(0,40)});
+    active.data.nickname=name.trim();
+    $("chatTitle").textContent=labelContact(active.data);
+  } catch(e) { alert(e.message); }
+};
+
+$("sendForm").onsubmit=async e=>{
+  e.preventDefault();
+  const text=$("messageInput").value.trim();
+  if(!text||!active||!me) return;
+  const chat=active.id;
+  $("messageInput").value="";
+  try {
+    await addDoc(collection(db,"chats",chat,"messages"),{
+      text, senderId:me.uid, createdAt:serverTimestamp()
+    });
+  } catch(err) {
+    $("messageInput").value=text;
+    alert("Message failed: "+err.message);
+  }
+};
+
+window.addEventListener("resize",()=>{
+  if(window.innerWidth>650) document.body.classList.remove("chat-open");
+});
+</script>
+</body>
+</html>
