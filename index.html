@@ -77,7 +77,7 @@ const firebaseConfig={
 const firebaseApp=initializeApp(firebaseConfig),auth=getAuth(firebaseApp),db=getFirestore(firebaseApp);
 const $=id=>document.getElementById(id);
 let me=null,profile=null,active=null,contacts=[],groups=[],knownUsers=[];
-let stopMessages=null,stopContacts=null,stopGroups=null,stopUsers=null,isSignup=false;
+let stopMessages=null,stopContacts=null,stopGroups=null,stopUsers=null,isSignup=false,registrationInProgress=false,repairMode=false;
 
 function status(s){$("authStatus").textContent=s}
 function cleanId(s){return s.trim().replace(/^@/,"").toUpperCase()}
@@ -90,7 +90,8 @@ function friendlyError(e){
  if(code==="auth/invalid-email")return "Enter a valid email address.";
  if(code==="auth/weak-password")return "Choose a password with at least 6 characters.";
  if(code==="auth/invalid-credential"||code==="auth/wrong-password"||code==="auth/user-not-found")return "Email or password is incorrect.";
- if(code==="permission-denied")return "Firebase blocked this action. Check that Authentication and Firestore rules are configured.";
+ if(code==="permission-denied"||code==="firestore/permission-denied")return "Firestore denied this action. Check the published Firestore rules. (permission-denied)";
+ if(code==="auth/network-request-failed")return "Network request failed. Check your internet connection and try again.";
  return e?.message||"Something went wrong. Please try again.";
 }
 function report(e){console.error(e);alert(friendlyError(e))}
@@ -101,29 +102,38 @@ function showAuth(){
 $("signup").onclick=async()=>{
  if(!isSignup){isSignup=true;$("signupFields").classList.remove("hidden");$("login").classList.add("hidden");$("signup").textContent="Register";status("");return}
  const email=$("email").value.trim(),password=$("password").value,username=cleanId($("username").value),displayName=$("displayName").value.trim();
- if(!email){status("Enter your email address.");return}
- if(password.length<6){status("Password must contain at least 6 characters.");return}
+ if(!repairMode&&!email){status("Enter your email address.");return}
+ if(!repairMode&&password.length<6){status("Password must contain at least 6 characters.");return}
  if(!/^[A-Z0-9_]{3,24}$/.test(username)){status("ID must be 3–24 letters, numbers or underscores.");return}
  if(!displayName){status("Enter your display name.");return}
  $("signup").disabled=true;
  let credential=null;
  try{
-  credential=await createUserWithEmailAndPassword(auth,email,password);
-  const uid=credential.user.uid;
-  try{
-   await runTransaction(db,async tx=>{
-    const nameRef=doc(db,"usernames",username),userRef=doc(db,"users",uid);
-    const existing=await tx.get(nameRef);
-    if(existing.exists())throw new Error("That REDLINE ID is already taken. Sign out and register with another ID.");
-    tx.set(nameRef,{uid,username});
-    tx.set(userRef,{username,displayName,createdAt:serverTimestamp()});
-   });
-   status("Account created!");
-  }catch(profileError){
-   console.error(profileError);
-   status("Your login was created, but profile setup failed. Check Firestore rules, then sign out and contact the app owner. "+friendlyError(profileError));
+  if(!repairMode){
+   registrationInProgress=true;
+   credential=await createUserWithEmailAndPassword(auth,email,password);
   }
- }catch(e){status(friendlyError(e))}
+  const user=repairMode?auth.currentUser:credential.user;
+  if(!user)throw new Error("No signed-in account was found. Please log in again.");
+  await runTransaction(db,async tx=>{
+   const nameRef=doc(db,"usernames",username),userRef=doc(db,"users",user.uid);
+   const existing=await tx.get(nameRef);
+   const existingProfile=await tx.get(userRef);
+   if(existing.exists()&&existing.data().uid!==user.uid)throw new Error("That REDLINE ID is already taken. Choose another ID.");
+   if(existingProfile.exists())throw new Error("Your profile already exists. Log out and log in again.");
+   if(!existing.exists())tx.set(nameRef,{uid:user.uid,username});
+   tx.set(userRef,{username,displayName,createdAt:serverTimestamp()});
+  });
+  repairMode=false;registrationInProgress=false;isSignup=false;
+  $("signupFields").classList.add("hidden");$("login").classList.remove("hidden");$("signup").textContent="Create account";
+  status("Profile saved. Loading REDLINE…");
+  await handleAuthenticatedUser(user);
+ }catch(e){
+  registrationInProgress=false;
+  console.error("Signup/profile setup failed:",e);
+  status("Could not finish registration: "+friendlyError(e)+(e?.code?" ["+e.code+"]":""));
+  if(!repairMode&&auth.currentUser){repairMode=true;isSignup=true;$("signupFields").classList.remove("hidden");$("login").classList.add("hidden");$("signup").textContent="Create profile";status("Your authentication account exists, but profile setup failed. Choose an available ID and display name, then tap Create profile. Details: "+friendlyError(e));}
+ }
  finally{$("signup").disabled=false}
 };
 $("login").onclick=async()=>{
@@ -135,15 +145,24 @@ $("login").onclick=async()=>{
  finally{$("login").disabled=false}
 };
 $("logout").onclick=async()=>{stopAll();active=null;await signOut(auth);showAuth()};
-onAuthStateChanged(auth,async user=>{
+async function handleAuthenticatedUser(user){
  stopAll();me=user;profile=null;active=null;
  if(!user){showAuth();return}
  try{
   const snap=await getDoc(doc(db,"users",user.uid));
-  if(!snap.exists()){status("Your profile could not be found. Firestore rules or registration may need fixing.");await signOut(auth);return}
-  profile=snap.data();$("auth").style.display="none";$("app").style.display="block";$("logout").classList.remove("hidden");
+  if(!snap.exists()){
+   repairMode=true;isSignup=true;showAuth();
+   $("signupFields").classList.remove("hidden");$("login").classList.add("hidden");$("signup").textContent="Create profile";
+   status("Your Firebase login exists, but its REDLINE profile is missing. Enter a new available ID and display name, then tap Create profile. Your account will not be deleted.");
+   return;
+  }
+  repairMode=false;profile=snap.data();$("auth").style.display="none";$("app").style.display="block";$("logout").classList.remove("hidden");
   startLists();
- }catch(e){alert("Could not load profile: "+friendlyError(e))}
+ }catch(e){status("Could not load profile: "+friendlyError(e)+(e?.code?" ["+e.code+"]":""));console.error("Profile load failed:",e)}
+}
+onAuthStateChanged(auth,async user=>{
+ if(registrationInProgress)return;
+ await handleAuthenticatedUser(user);
 });
 function startLists(){
  stopContacts=onSnapshot(collection(db,"users",me.uid,"contacts"),s=>{contacts=s.docs.map(d=>({id:d.id,...d.data()}));drawPeople()},report);
