@@ -10,6 +10,10 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif}
 button,input{font:inherit;border-radius:10px;padding:12px}
+button.icon-btn{padding:7px 9px;font-size:12px;background:#292933}
+.message-actions{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}.message-actions button{padding:5px 8px;font-size:11px}
+.message-link{color:#fda4af;text-decoration:underline;overflow-wrap:anywhere}.attachment{display:block;margin-top:8px;color:#fda4af;overflow-wrap:anywhere}.attachment img{display:block;max-width:min(260px,100%);max-height:300px;object-fit:contain;border-radius:10px;margin-top:5px}
+#sendForm{align-items:center;flex-wrap:wrap}#messageInput{flex:1;min-width:120px}#fileInput{display:none}#attachmentName{font-size:11px;max-width:100%;overflow-wrap:anywhere}
 button{cursor:pointer;border:0;background:var(--red);color:white;font-weight:700}
 button:disabled{opacity:.55;cursor:wait}
 button.secondary{background:#24242d;border:1px solid var(--border)}
@@ -35,7 +39,7 @@ small,.muted{color:var(--muted)}
 </style>
 </head>
 <body>
-<header><div class="logo">RED<span>LINE</span></div><button id="logout" class="secondary hidden">Log out</button></header>
+<header><div class="logo">RED<span>LINE</span></div><div style="display:flex;gap:8px"><button id="adminToggle" class="secondary hidden" type="button">Admin dashboard</button><button id="logout" class="secondary hidden">Log out</button></div></header>
 <section id="auth">
 <h1>Enter your<br><span style="color:#e11d48">own space.</span></h1>
 <p class="muted">Your squad. Your rules. No phone number.</p>
@@ -51,19 +55,22 @@ small,.muted{color:var(--muted)}
 </section>
 <section id="app"><div class="layout">
 <aside class="sidebar"><strong>Your squad</strong><div class="actions"><button id="addContact">+ Contact</button><button id="createGroup" class="secondary">+ Group</button></div>
-<input id="search" placeholder="Search your chats..."><div id="people"></div>
+<button id="enableNotifications" class="secondary" type="button" style="width:100%;margin:8px 0">Enable notifications</button><p id="notificationStatus" class="muted" style="font-size:11px" role="status"></p><input id="search" placeholder="Search your chats..."><div id="people"></div>
 <p class="muted" style="font-size:11px">Your saved nicknames are private to your account.</p></aside>
 <main id="chat">
 <div id="empty"><div class="symbol">✦</div><h2>Your people. Your space.</h2><p class="muted">Choose a contact or create a group.</p></div>
 <div id="conversation" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
 <div id="chatHeader"><button id="back" class="secondary hidden">← Back</button><strong id="chatTitle">Chat</strong><button id="rename" class="secondary">Rename</button></div>
-<div id="messages"></div><form id="sendForm"><input id="messageInput" placeholder="Message your Bois..." maxlength="4000" autocomplete="off" required><button id="sendButton" type="submit">Send</button></form>
+<div id="messages"></div><form id="sendForm"><input id="messageInput" placeholder="Message your Bois..." maxlength="4000" autocomplete="off"><input id="fileInput" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"><button id="attachButton" class="secondary" type="button" title="Attach image or file">＋</button><button id="sendButton" type="submit">Send</button><span id="attachmentName" class="muted"></span></form>
 </div></main></div></section>
+<section id="adminPanel" class="hidden" style="padding:16px;max-width:1100px;margin:auto"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin-bottom:4px">Read-only admin dashboard</h2><p class="muted" style="margin-top:0">Authorized account only. Messages shown here are private user data.</p></div><button id="adminClose" class="secondary" type="button">Back to chats</button></div><label for="adminUserSelect">Select a user</label><select id="adminUserSelect" style="width:100%;margin:8px 0 14px;padding:12px;border-radius:10px;background:#0c0c11;color:white;border:1px solid var(--border)"><option value="">Choose a user…</option></select><div id="adminChats"></div><p id="adminStatus" class="muted" role="status"></p></section>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,addDoc,collection,query,where,orderBy,onSnapshot,serverTimestamp,updateDoc,runTransaction} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+import {getFirestore,doc,getDoc,getDocs,setDoc,addDoc,collection,query,where,orderBy,onSnapshot,serverTimestamp,updateDoc,deleteDoc,runTransaction} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+import {getStorage,ref as storageRef,uploadBytes,getDownloadURL} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-storage.js";
+import {getMessaging,isSupported,getToken,onMessage} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-messaging.js";
 
 const firebaseConfig={
  apiKey:"AIzaSyB-3EDn9LF4VPUI-ZspyDk4KHSp0PktEVw",
@@ -74,9 +81,12 @@ const firebaseConfig={
  appId:"1:799281869222:web:c61087e7661d32008d9f67",
  measurementId:"G-2XNZHNZEF1"
 };
-const firebaseApp=initializeApp(firebaseConfig),auth=getAuth(firebaseApp),db=getFirestore(firebaseApp);
+const firebaseApp=initializeApp(firebaseConfig),auth=getAuth(firebaseApp),db=getFirestore(firebaseApp),storage=getStorage(firebaseApp);
 const $=id=>document.getElementById(id);
-let me=null,profile=null,active=null,contacts=[],groups=[],knownUsers=[];
+const VAPID_KEY="BB7yNRZjuBDt03deo7qg7Llnxpb0fxKD8WEEdfQZ8-2u033ZXeSstr05P_epdvtLBH5jBC1OZ5z-nP-tTXeSrTA";
+const NOTIFICATION_WORKER="https://redline-notifications.editexaura07.workers.dev/";
+let messaging=null,foregroundMessageHandler=null;
+let me=null,profile=null,active=null,contacts=[],groups=[],knownUsers=[],isAdmin=false,adminUsers=[],adminChats=[];
 let stopMessages=null,stopContacts=null,stopGroups=null,stopUsers=null,isSignup=false,registrationInProgress=false,repairMode=false;
 
 function status(s){$("authStatus").textContent=s}
@@ -96,7 +106,7 @@ function friendlyError(e){
 }
 function report(e){console.error(e);alert(friendlyError(e))}
 function showAuth(){
- $("auth").style.display="block";$("app").style.display="none";$("logout").classList.add("hidden");
+ $("auth").style.display="block";$("app").style.display="none";$("adminPanel").classList.add("hidden");$("adminToggle").classList.add("hidden");$("logout").classList.add("hidden");
  document.body.classList.remove("chat-open");
 }
 $("signup").onclick=async()=>{
@@ -146,7 +156,7 @@ $("login").onclick=async()=>{
 };
 $("logout").onclick=async()=>{stopAll();active=null;await signOut(auth);showAuth()};
 async function handleAuthenticatedUser(user){
- stopAll();me=user;profile=null;active=null;
+ stopAll();me=user;profile=null;active=null;isAdmin=false;
  if(!user){showAuth();return}
  try{
   const snap=await getDoc(doc(db,"users",user.uid));
@@ -156,7 +166,9 @@ async function handleAuthenticatedUser(user){
    status("Your Firebase login exists, but its REDLINE profile is missing. Enter a new available ID and display name, then tap Create profile. Your account will not be deleted.");
    return;
   }
-  repairMode=false;profile=snap.data();$("auth").style.display="none";$("app").style.display="block";$("logout").classList.remove("hidden");
+  repairMode=false;profile=snap.data();
+  try{const adminSnap=await getDoc(doc(db,"admins",user.uid));isAdmin=adminSnap.exists()&&adminSnap.data().enabled===true;}catch(adminErr){console.warn("Admin status unavailable:",adminErr);isAdmin=false;}
+  $("adminToggle").classList.toggle("hidden",!isAdmin);$("adminPanel").classList.add("hidden");$("auth").style.display="none";$("app").style.display="block";$("logout").classList.remove("hidden");
   startLists();
  }catch(e){status("Could not load profile: "+friendlyError(e)+(e?.code?" ["+e.code+"]":""));console.error("Profile load failed:",e)}
 }
@@ -164,6 +176,35 @@ onAuthStateChanged(auth,async user=>{
  if(registrationInProgress)return;
  await handleAuthenticatedUser(user);
 });
+async function enablePushNotifications(){
+ const statusEl=$("notificationStatus");
+ try{
+  if(!me){statusEl.textContent="Log in first to enable notifications.";return;}
+  if(!(await isSupported())){statusEl.textContent="Push notifications are not supported by this browser.";return;}
+  if(!("Notification" in window)){statusEl.textContent="This browser does not support notifications.";return;}
+  const permission=await Notification.requestPermission();
+  if(permission!=="granted"){
+   statusEl.textContent=permission==="denied"?"Notifications are blocked. Allow them in your browser's site settings.":"Notification permission was not granted.";
+   return;
+  }
+  const swUrl=new URL("./firebase-messaging-sw.js",location.href);
+  const swScope=new URL("./",location.href).pathname;
+  const registration=await navigator.serviceWorker.register(swUrl,{scope:swScope});
+  messaging=getMessaging(firebaseApp);
+  const token=await getToken(messaging,{vapidKey:VAPID_KEY,serviceWorkerRegistration:registration});
+  if(!token)throw new Error("Firebase did not return a notification token. Check Firebase Cloud Messaging setup.");
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token));
+  const tokenId=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+  await setDoc(doc(db,"users",me.uid,"notificationTokens",tokenId),{token,createdAt:serverTimestamp(),platform:"web"},{merge:true});
+  if(foregroundMessageHandler)foregroundMessageHandler();
+  foregroundMessageHandler=onMessage(messaging,()=>{
+   if(Notification.permission==="granted")new Notification("REDLINE",{body:"Redline has a text message for you."});
+  });
+  statusEl.textContent="Notifications are enabled on this device.";
+ }catch(err){console.error("Notification setup failed:",err);statusEl.textContent="Could not enable notifications: "+(err?.message||"Please try again.");}
+}
+$("enableNotifications").onclick=enablePushNotifications;
+
 function startLists(){
  stopContacts=onSnapshot(collection(db,"users",me.uid,"contacts"),s=>{contacts=s.docs.map(d=>({id:d.id,...d.data()}));drawPeople()},report);
  stopGroups=onSnapshot(query(collection(db,"chats"),where("members","array-contains",me.uid)),s=>{groups=s.docs.filter(d=>d.data().type==="group").map(d=>({id:d.id,...d.data()}));drawPeople()},report);
@@ -230,10 +271,20 @@ async function openChat(entry){
   snap.docs.forEach(m=>{
    const x=m.data(),bubble=document.createElement("div");bubble.className="bubble"+(x.senderId===me.uid?" mine":"");
    const author=document.createElement("div");author.style.fontSize="11px";author.style.color="#fda4af";
-   author.textContent=x.senderId===me.uid?"You":(knownUsers.find(u=>u.uid===x.senderId)?.displayName||"Member");
-   const body=document.createElement("div");body.textContent=x.text||"";
-   const time=document.createElement("small");time.textContent=x.createdAt?.toDate?x.createdAt.toDate().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"Sending…";
-   bubble.append(author,body,time);box.append(bubble);
+   author.textContent=x.senderId===me.uid?"You":(knownUsers.find(u=>u.uid===x.senderId)?.displayName||"Member");bubble.append(author);
+   if(x.text){const body=document.createElement("div");body.textContent=x.text;body.style.whiteSpace="pre-wrap";bubble.append(body);}
+   if(x.attachment?.url){
+    const a=document.createElement("a");a.className="attachment";a.href=x.attachment.url;a.target="_blank";a.rel="noopener noreferrer";a.textContent="📎 "+(x.attachment.name||"Open attachment");
+    if((x.attachment.type||"").startsWith("image/")){const img=document.createElement("img");img.src=x.attachment.url;img.alt=x.attachment.name||"Shared image";img.loading="lazy";a.textContent="";a.append(img,document.createTextNode(x.attachment.name||"Image"));}
+    bubble.append(a);
+   }
+   if(x.text){const urlRegex=/(https?:\/\/[^\s]+)/g;const body=bubble.querySelector("div:nth-child(2)");if(body){const raw=x.text;body.replaceChildren();raw.split(urlRegex).forEach(part=>{if(/^https?:\/\//i.test(part)){const a=document.createElement("a");a.href=part;a.target="_blank";a.rel="noopener noreferrer";a.className="message-link";a.textContent=part;body.append(a)}else body.append(document.createTextNode(part))})}}
+   const time=document.createElement("small");time.textContent=(x.createdAt?.toDate?x.createdAt.toDate().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"Sending…")+(x.editedAt?" · edited":"");bubble.append(time);
+   if(x.senderId===me.uid){const actions=document.createElement("div");actions.className="message-actions";
+    if(x.text){const edit=document.createElement("button");edit.className="icon-btn";edit.textContent="Edit";edit.onclick=async()=>{const next=prompt("Edit your message:",x.text);if(next===null)return;if(!next.trim()){alert("Message cannot be empty. Use Delete to remove it.");return}if(next.trim().length>4000){alert("Messages must be 4000 characters or fewer.");return}try{await updateDoc(doc(db,"chats",active.id,"messages",m.id),{text:next.trim(),editedAt:serverTimestamp()})}catch(e){report(e)}};actions.append(edit)}
+    const del=document.createElement("button");del.className="icon-btn";del.textContent="Delete";del.onclick=async()=>{if(!confirm("Delete this message for everyone in this chat?"))return;try{await deleteDoc(doc(db,"chats",active.id,"messages",m.id))}catch(e){report(e)}};actions.append(del);bubble.append(actions);
+   }
+   box.append(bubble);
   });
   box.scrollTop=box.scrollHeight;
  },report);
@@ -248,13 +299,64 @@ $("rename").onclick=async()=>{
   active.data.nickname=name.trim().slice(0,40);$("chatTitle").textContent=labelContact(active.data);drawPeople();
  }catch(e){report(e)}
 };
+let selectedFile=null;
+$("attachButton").onclick=()=>$("fileInput").click();
+$("fileInput").onchange=()=>{selectedFile=$("fileInput").files?.[0]||null;$("attachmentName").textContent=selectedFile?"📎 "+selectedFile.name:"";};
 $("sendForm").onsubmit=async e=>{
- e.preventDefault();const text=$("messageInput").value.trim();if(!text||!active||!me)return;
- const chatIdNow=active.id;$("messageInput").value="";$("sendButton").disabled=true;
- try{await addDoc(collection(db,"chats",chatIdNow,"messages"),{text,senderId:me.uid,createdAt:serverTimestamp()})}
- catch(err){$("messageInput").value=text;report(err)}
- finally{$("sendButton").disabled=false}
+ e.preventDefault();const text=$("messageInput").value.trim(),file=selectedFile;if((!text&&!file)||!active||!me)return;
+ if(file&&file.size>10*1024*1024){alert("Attachments must be 10 MB or smaller.");return}
+ const chatIdNow=active.id;$("sendButton").disabled=true;$("attachButton").disabled=true;
+ try{
+  let attachment=null;
+  if(file){const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_").slice(-100)||"attachment";const path=`chats/${chatIdNow}/${me.uid}/${Date.now()}_${safeName}`;const target=storageRef(storage,path);await uploadBytes(target,file,{contentType:file.type||"application/octet-stream"});attachment={name:file.name,type:file.type||"application/octet-stream",size:file.size,url:await getDownloadURL(target),path};}
+  const messageRef=await addDoc(collection(db,"chats",chatIdNow,"messages"),{text,senderId:me.uid,createdAt:serverTimestamp(),...(attachment?{attachment}:{})});
+  // Notification delivery is separate: a notification failure must never undo a sent message.
+  try{
+   const idToken=await me.getIdToken();
+   await fetch(NOTIFICATION_WORKER,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idToken},body:JSON.stringify({chatId:chatIdNow,messageId:messageRef.id})});
+  }catch(notificationError){console.warn("Push notification request failed:",notificationError);}
+  $("messageInput").value="";selectedFile=null;$("fileInput").value="";$("attachmentName").textContent="";
+ }catch(err){report(err)}
+ finally{$("sendButton").disabled=false;$("attachButton").disabled=false}
 };
+async function loadAdminUsers(){
+ if(!isAdmin||!me)return;
+ $("adminStatus").textContent="Loading users…";
+ try{
+  const [usersSnap,chatsSnap]=await Promise.all([getDocs(collection(db,"users")),getDocs(collection(db,"chats"))]);
+  adminUsers=usersSnap.docs.map(d=>({uid:d.id,...d.data()}));
+  adminChats=chatsSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const select=$("adminUserSelect"),old=select.value;select.replaceChildren();
+  const first=document.createElement("option");first.value="";first.textContent="Choose a user…";select.append(first);
+  adminUsers.sort((a,b)=>(a.displayName||a.username||"").localeCompare(b.displayName||b.username||""));
+  for(const u of adminUsers){const opt=document.createElement("option");opt.value=u.uid;opt.textContent=`${u.displayName||"Unnamed user"} (@${u.username||"unknown"})`;select.append(opt)}
+  if(adminUsers.some(u=>u.uid===old))select.value=old;
+  $("adminStatus").textContent=`Loaded ${adminUsers.length} users. Select a user to inspect their chats.`;
+  if(select.value)await showAdminChats(select.value);
+ }catch(e){console.error(e);$("adminStatus").textContent="Could not load admin data. Confirm Firestore rules allow enabled admins to read users and chats. "+friendlyError(e)}
+}
+async function showAdminChats(uid){
+ if(!isAdmin||!uid)return;
+ const area=$("adminChats");area.replaceChildren();$("adminStatus").textContent="Loading selected user's chats…";
+ const user=adminUsers.find(u=>u.uid===uid);const relevant=adminChats.filter(c=>Array.isArray(c.members)&&c.members.includes(uid));
+ if(!relevant.length){$("adminStatus").textContent="No chats found for this user.";return}
+ for(const chat of relevant){
+  const card=document.createElement("section");card.style.cssText="border:1px solid var(--border);border-radius:12px;padding:12px;margin:12px 0;background:var(--panel)";
+  const title=document.createElement("h3");title.style.margin="0 0 4px";title.textContent=chat.type==="group"?(chat.name||"Unnamed group"):("Direct chat · "+(chat.members||[]).length+" members");
+  const meta=document.createElement("p");meta.className="muted";meta.style.fontSize="12px";meta.textContent=`Chat ID: ${chat.id} · Members: ${(chat.members||[]).map(id=>{const u=adminUsers.find(x=>x.uid===id);return u?(u.displayName||u.username||id):id}).join(", ")}`;
+  const messagesBox=document.createElement("div");messagesBox.className="muted";messagesBox.textContent="Loading messages…";card.append(title,meta,messagesBox);area.append(card);
+  try{
+   const msgSnap=await getDocs(query(collection(db,"chats",chat.id,"messages"),orderBy("createdAt","asc")));
+   messagesBox.replaceChildren();
+   if(msgSnap.empty){messagesBox.textContent="No messages in this chat.";continue}
+   for(const md of msgSnap.docs){const m=md.data(),line=document.createElement("div");line.style.cssText="padding:9px 0;border-top:1px solid var(--border);overflow-wrap:anywhere";const who=adminUsers.find(u=>u.uid===m.senderId);const author=document.createElement("strong");author.textContent=who?(who.displayName||who.username||"User")+(m.senderId===uid?" (selected user)":""):"Unknown user";const body=document.createElement("div");body.style.whiteSpace="pre-wrap";body.textContent=m.text||"";line.append(author,body);if(m.attachment?.url){const a=document.createElement("a");a.href=m.attachment.url;a.target="_blank";a.rel="noopener noreferrer";a.textContent="📎 "+(m.attachment.name||"Open attachment");a.style.color="#fda4af";line.append(a)}const time=document.createElement("small");time.style.display="block";time.textContent=m.createdAt?.toDate?m.createdAt.toDate().toLocaleString():"Time unavailable";line.append(time);messagesBox.append(line)}
+  }catch(e){messagesBox.textContent="Could not read messages. Check admin read access in Firestore rules.";console.warn("Admin messages load failed",e)}
+ }
+ $("adminStatus").textContent=`Showing ${relevant.length} chat(s) for ${user?.displayName||user?.username||"selected user"}. Read-only.`;
+}
+$("adminToggle").onclick=async()=>{if(!isAdmin){alert("Admin access is not enabled for this account.");return}$("app").classList.add("hidden");$("adminPanel").classList.remove("hidden");await loadAdminUsers()};
+$("adminClose").onclick=()=>{$("adminPanel").classList.add("hidden");$("app").classList.remove("hidden")};
+$("adminUserSelect").onchange=()=>showAdminChats($("adminUserSelect").value);
 window.addEventListener("resize",()=>{if(window.innerWidth>650)document.body.classList.remove("chat-open")});
 </script>
 </body>
