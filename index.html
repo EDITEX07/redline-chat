@@ -64,7 +64,25 @@ small,.muted{color:var(--muted)}
 <div id="messages"></div><form id="sendForm"><input id="messageInput" placeholder="Message your Bois..." maxlength="4000" autocomplete="off"><input id="fileInput" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"><button id="attachButton" class="secondary" type="button" title="Attach image or file">＋</button><button id="sendButton" type="submit">Send</button><span id="attachmentName" class="muted"></span></form>
 </div></main></div></section>
 <section id="adminPanel" class="hidden" style="padding:16px;max-width:1100px;margin:auto"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin-bottom:4px">Read-only admin dashboard</h2><p class="muted" style="margin-top:0">Authorized account only. Messages shown here are private user data.</p></div><button id="adminClose" class="secondary" type="button">Back to chats</button></div><label for="adminUserSelect">Select a user</label><select id="adminUserSelect" style="width:100%;margin:8px 0 14px;padding:12px;border-radius:10px;background:#0c0c11;color:white;border:1px solid var(--border)"><option value="">Choose a user…</option></select><div id="adminChats"></div><p id="adminStatus" class="muted" role="status"></p></section>
+<script>
+window.addEventListener("error", function(event) {
+  const status = document.getElementById("authStatus");
+  if (status) {
+    status.textContent = "REDLINE JavaScript Error: " +
+      (event.message || "Script failed to load") +
+      (event.filename ? " | " + event.filename : "") +
+      (event.lineno ? " | Line " + event.lineno : "");
+  }
+});
 
+window.addEventListener("unhandledrejection", function(event) {
+  const status = document.getElementById("authStatus");
+  if (status) {
+    status.textContent = "REDLINE Loading Error: " +
+      (event.reason?.message || String(event.reason));
+  }
+});
+</script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
